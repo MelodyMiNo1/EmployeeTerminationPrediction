@@ -1,0 +1,367 @@
+---
+title: "Project 9660"
+date: "2022-12-17"
+output: word_document
+---
+
+```{r packages, warning=FALSE, include=FALSE}
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(regclass)
+library(MASS)
+library(boot)
+library(leaps)
+library(ggplot2)
+library(plotly)
+library(caret)
+library(stargazer)
+library(tree)
+library(randomForest)
+library(gbm)
+library(broom)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+library(papeR)
+library(e1071)
+library(gmodels) 
+library(psych)
+library(FNN)
+library(vtable)
+```
+
+## Read and Convert Data
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+HR_Dataset <- read_csv("HR-Dataset.csv")
+HR_Dataset$Sex<-as.factor(HR_Dataset$Sex)
+HR_Dataset$Position<-as.factor(HR_Dataset$Position)
+HR_Dataset$MaritalDesc<-as.factor(HR_Dataset$MaritalDesc)
+HR_Dataset$CitizenDesc<-as.factor(HR_Dataset$CitizenDesc)
+HR_Dataset$RaceDesc<-as.factor(HR_Dataset$RaceDesc)
+HR_Dataset$EmploymentStatus<-as.factor(HR_Dataset$EmploymentStatus)
+HR_Dataset$Department<-as.factor(HR_Dataset$Department)
+HR_Dataset$RecruitmentSource<-as.factor(HR_Dataset$RecruitmentSource)
+HR_Dataset$PerformanceScore<-as.factor(HR_Dataset$PerformanceScore)
+HR_Dataset$FromDiversityJobFairID <-as.factor(HR_Dataset$FromDiversityJobFairID)
+HR_Dataset$PerformanceScore <- as.factor(HR_Dataset$PerformanceScore)
+HR_Dataset$EmpSatisfaction <- as.factor(HR_Dataset$EmpSatisfaction)
+HR_Dataset$Termd <- as.factor(HR_Dataset$Termd)
+
+```
+
+## Subset Data 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+HR_Subset <- colnames(HR_Dataset)
+HR_Subset <- HR_Subset[-c(1:9,12,14:16,22:26,27:28,34)]
+HR_Dataset2 <- HR_Dataset %>% 
+  subset(select=HR_Subset)
+HR_Dataset2 <- HR_Dataset2[which(complete.cases(HR_Dataset2)),]
+```
+
+## Summary Stats
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+str(HR_Dataset2)
+#st(HR_Dataset2[c(1,11,13:15)])
+#st(HR_Dataset2[-c(1,11,13:15)])
+```
+
+## Visualizations
+```{r, echo=FALSE,warning=FALSE}
+p <- ggplot(HR_Dataset,aes(x=factor(Termd),y=Salary,fill=factor(Termd)))+
+  geom_boxplot()+
+  stat_summary(fun.y="mean",color="red", shape=13)+
+  geom_hline(yintercept = 70500,color="red")+
+  labs(title="Figure 1.1 Distribution of Salaries Between Terminated and Current Employees",
+      x =  'Terminated {1 = Yes, 0 = No}' )+
+  scale_fill_hue(l=40, c=35)
+p
+
+p1 <- ggplot(data=HR_Dataset,aes(x=RecruitmentSource,
+                                fill=factor(Termd)))+
+  geom_bar(position = 'dodge')+
+  labs(y='Count of Employees',
+       title = 'Figure 1.2 Termination by Recruitment  Source')+
+  theme(legend.position="top-right",
+        axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_hue(l=40, c=35)
+
+ggplotly(p1)
+
+
+p2 <- ggplot(data=HR_Dataset,aes(y=Department,
+                                fill=factor(Termd)))+
+  geom_bar(position = 'dodge')+
+  labs(x='Count of Employees',
+       title = 'Figure 1.3 Termination Across Departments')+
+  theme(legend.position="top-right",
+        axis.text.y = element_text(angle = 45, hjust = 1))+
+  scale_fill_hue(l=40, c=35)
+
+ggplotly(p2)
+
+
+```
+
+## Logistic Regression
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Training and Testing Set 80/20
+smp_size <- floor(0.8 * nrow(HR_Dataset2))
+set.seed(123)
+train_ind <- sample(seq_len(nrow(HR_Dataset2)), size = smp_size)
+
+train <- HR_Dataset2[train_ind, ]
+test <- HR_Dataset2[-train_ind, ]
+```
+
+### Full Model 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+FullModel <- glm(Termd~.,data = HR_Dataset2,family = "binomial")
+summary(FullModel)
+
+# Log odds 
+tab_model(FullModel,transform = NULL,string.se = "Std. Error",string.stat = "Z Value",p.style = 'stars',show.est = TRUE,show.se = TRUE, show.stat = TRUE, collapse.ci = FALSE)
+```
+
+## Reduced Model
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+StepModel <- stepAIC(FullModel, direction = "both", trace = FALSE)
+summary(StepModel)
+
+# log odds
+tab_model(StepModel,transform = NULL,string.se = "Std. Error",string.stat = "Z Value",p.style = 'stars', show.est = TRUE,show.se = TRUE, show.stat = TRUE, collapse.ci = FALSE)
+```
+
+
+### Confusion Matrix
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+draw_confusion_matrix <- function(cm) {
+  
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+  
+  # create the matrix 
+  rect(150, 430, 240, 370, col='Gray33')
+  text(195, 435, 'Terminated', cex=1.2)
+  rect(250, 430, 340, 370, col='Gray')
+  text(295, 435, 'Not Terminated', cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col='Gray')
+  rect(250, 305, 340, 365, col='Gray33')
+  text(140, 400, 'Terminated', cex=1.2, srt=90)
+  text(140, 335, 'Not Terminated', cex=1.2, srt=90)
+  
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+  
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+  
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}  
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#full
+probabilitiesFull <- predict(FullModel,test, type = "response")
+predicted <- ifelse(probabilitiesFull > 0.5, 1, 0)
+predicted <- as.factor(predicted)
+#reduced
+probabilitiesRediced <- predict(StepModel,test, type = "response")
+predictedR <- ifelse(probabilitiesRediced > 0.5, 1, 0)
+predictedR <- as.factor(predictedR)
+
+par(mfrow=c(1,2))
+draw_confusion_matrix(confusionMatrix(predictedR,as.factor(test$Termd)))
+draw_confusion_matrix(confusionMatrix(predicted,test$Termd))
+```
+
+### Cross Validation 5 Fold
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+ctrlspecs <- trainControl(method="cv", 
+                          number=5, 
+                          savePredictions="all",
+                          classProbs=FALSE)
+
+model1 <- train(Termd ~ MaritalDesc + RecruitmentSource + SpecialProjectsCount + DaysLateLast30, 
+                data=train, 
+                method="glm", 
+                family=binomial, 
+                trControl=ctrlspecs)
+print(model1)
+```
+# TREES 
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+smp_size <- floor(0.9 * nrow(HR_Dataset))
+## set the seed to make your partition reproducible
+set.seed(2)
+train_ind <- sample(seq_len(nrow(HR_Dataset2)), size = smp_size)
+
+train <- HR_Dataset[train_ind, ]
+test <- HR_Dataset[-train_ind, ]
+
+Termd.test=HR_Dataset$Termd[-train_ind]
+
+tree.HR_Dataset=tree(Termd~FromDiversityJobFairID+Department+SpecialProjectsCount+DaysLateLast30+Absences+Salary+
+                       PerformanceScore+MaritalDesc+EngagementSurvey+Sex+EmpSatisfaction+HispanicLatino+CitizenDesc+
+                       RaceDesc,HR_Dataset,subset=train_ind)
+tree.pred=predict(tree.HR_Dataset,test,type="class")
+
+draw_confusion_matrix(confusionMatrix(tree.pred,Termd.test))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+cv.HR_Dataset=cv.tree(tree.HR_Dataset,FUN=prune.misclass)
+cv.HR_Dataset
+plot(cv.HR_Dataset$size,cv.HR_Dataset$dev,type="b")
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+prune.HR_Dataset=prune.misclass(tree.HR_Dataset,best=5)
+plot(prune.HR_Dataset)
+text(prune.HR_Dataset,pretty=0)
+tree.pred=predict(prune.HR_Dataset,test,type="class")
+draw_confusion_matrix(confusionMatrix(tree.pred,Termd.test))
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(2)
+bag.HR_Dataset=randomForest(Termd~FromDiversityJobFairID+Department+SpecialProjectsCount+DaysLateLast30+Absences+
+                              Salary+PerformanceScore+MaritalDesc+EngagementSurvey+Sex+EmpSatisfaction+
+                              HispanicLatino+CitizenDesc+RaceDesc,data=HR_Dataset,subset=train_ind,mtry=14,importance=TRUE)
+bag.HR_Dataset
+importance(bag.HR_Dataset)
+yhat.bag = predict(bag.HR_Dataset,newdata=HR_Dataset[-train_ind,])
+table(yhat.bag,Termd.test)
+
+draw_confusion_matrix(confusionMatrix(yhat.bag,Termd.test))
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+rf.HR_Dataset=randomForest(Termd~FromDiversityJobFairID+Department+SpecialProjectsCount+DaysLateLast30+Absences+
+                             Salary+PerformanceScore+MaritalDesc+EngagementSurvey+Sex+EmpSatisfaction+HispanicLatino+
+                             CitizenDesc+RaceDesc,data=HR_Dataset,subset=train_ind,mtry=3,importance=TRUE)
+yhat.rf = predict(bag.HR_Dataset,newdata=HR_Dataset[-train_ind,])
+draw_confusion_matrix(confusionMatrix(yhat.rf,Termd.test))
+importance(rf.HR_Dataset)
+varImpPlot(rf.HR_Dataset)
+```
+
+# KNN
+
+### Cleaning Data
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#data cleaned
+var.names.data <-tolower(colnames(HR_Dataset))
+colnames(HR_Dataset) <- var.names.data
+hr.knn <- HR_Dataset[-c(1:2,12:19,21:29,34)] # subsetting 
+
+hr.knn$termd <- as.numeric(hr.knn$termd) 
+termd <- dplyr::select(HR_Dataset, termd) # Termd in its own space
+hr.knn = dplyr::select(hr.knn,-termd) # removing termd 
+#Dummy Coding KNN needs to be numeric
+hr.knn$hispaniclatino<- ifelse(hr.knn$hispaniclatino == "Yes", 1, 0)
+hr.knn$fromdiversityjobfairid <- as.numeric(hr.knn$fromdiversityjobfairid)
+hr.knn$performancescore <- as.numeric(hr.knn$performancescore)
+hr.knn$empsatisfaction <- as.numeric(hr.knn$empsatisfaction)
+#scaling numberic data
+hr.knn[, c("salary", 
+           "engagementsurvey", 
+           "specialprojectscount", 
+           "dayslatelast30", "absences")] <- scale(hr.knn[, c("salary", 
+                                                              "empsatisfaction", 
+                                                              "specialprojectscount", 
+                                                              "dayslatelast30", "absences")])
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#training set
+set.seed(2)
+smp_size <- floor(0.90 * nrow(hr.knn))
+train_ind <- sample(seq_len(nrow(hr.knn)), size = smp_size)
+
+# creating test and training sets that contain all of the predictors
+class_pred_train <- hr.knn[train_ind, ]
+class_pred_test <- hr.knn[-train_ind, ]
+
+class_pred_train <- as.data.frame(class_pred_train)
+class_pred_test <- as.data.frame(class_pred_test)
+# for Dependent Variable
+termd_train <- termd[train_ind, ]
+termd_test <- termd[-train_ind, ]
+
+termd_train = termd_train[['termd']]
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+termd_pred_knn <- knn(train = class_pred_train, test = class_pred_test, cl = termd_train, k=17)
+
+# put "termd_test" in a data frame
+termd_test <- data.frame(termd_test)
+# merge "mjob_pred_knn" and "mjob_outcome_test" 
+class_comparison <- data.frame(termd_pred_knn, termd_test)
+# specify column names for "class_comparison"
+names(class_comparison) <- c("Predictedtermd", "Observedtermd")
+draw_confusion_matrix(confusionMatrix(class_comparison$Observedtermd,class_comparison$Predictedtermd))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+termd_pred_knn <- knn(train = class_pred_train, test = class_pred_test, cl = termd_train, k=10)
+
+# put "termd_test" in a data frame
+termd_test <- data.frame(termd_test)
+# merge "mjob_pred_knn" and "mjob_outcome_test" 
+class_comparison <- data.frame(termd_pred_knn, termd_test)
+# specify column names for "class_comparison"
+names(class_comparison) <- c("Predictedtermd", "Observedtermd")
+draw_confusion_matrix(confusionMatrix(class_comparison$Observedtermd,class_comparison$Predictedtermd))
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+termd_pred_knn <- knn(train = class_pred_train, test = class_pred_test, cl = termd_train, k=20)
+
+# put "termd_test" in a data frame
+termd_test <- data.frame(termd_test)
+# merge "mjob_pred_knn" and "mjob_outcome_test" 
+class_comparison <- data.frame(termd_pred_knn, termd_test)
+# specify column names for "class_comparison"
+names(class_comparison) <- c("Predictedtermd", "Observedtermd")
+draw_confusion_matrix(confusionMatrix(class_comparison$Observedtermd,class_comparison$Predictedtermd))
+```
+
+
+
+
